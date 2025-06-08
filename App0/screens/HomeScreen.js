@@ -222,8 +222,8 @@ export default function App() {
 
         {/* Cup section with placeholder text and saucer */}
         <TouchableOpacity style={styles.writtenSection} onPress={handleFetchESP32}>
-          <Text style={styles.writtenPlace}>Place</Text>
-          <Text style={styles.writtenPlace}>your drink</Text>
+          <Text style={styles.writtenPlace}>cacca</Text>
+          <Text style={styles.writtenPlace}>pupu drink</Text>
           <Text style={styles.writtenPlace}>to start!</Text>
 
           {serverTemp !== null && (
