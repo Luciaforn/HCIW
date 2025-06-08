@@ -1,1 +1,36 @@
 App1/
+
+# Ignora tutta la cartella node_modules dentro App0 (inclusi file .bin, expo, ecc.)
+App0/node_modules/
+
+# Ignora tutti i file di log dentro App0 (a qualsiasi profondità)
+App0/**/*.log
+
+# Ignora cartelle di build tipiche di React Native
+App0/android/app/build/
+App0/ios/build/
+
+# File di log generici (globali)
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cartelle e file di sistema
+.DS_Store
+Thumbs.db
+
+# Cartelle temporanee di expo e cache
+.expo/
+.expo-shared/
+
+# File di lock
+*.lock
+
+# Configurazioni IDE (personalizza se usi altri editor)
+.idea/
+.vscode/
+
+# File di ambiente
+.env
+.env.local
+.env.*.local
