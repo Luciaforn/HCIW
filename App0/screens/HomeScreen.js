@@ -12,7 +12,8 @@ import {
   SafeAreaView,
   Dimensions,
   ImageBackground,
-  TouchableWithoutFeedback
+  TouchableWithoutFeedback,
+  Alert
 } from 'react-native';
 import { useFonts } from 'expo-font';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -31,63 +32,25 @@ const DrinkCard = ({ name, image, onPress }) => (
 // Main component
 export default function App() {
   const [temperature, setTemperature] = useState(60);
-
   const [selectedDrink, setSelectedDrink] = useState(null);
-
   const [modalVisible, setModalVisible] = useState(false);
-
   const [serverTemp, setServerTemp] = useState(null);
-
   const [tempEdit, setTempEdit] = useState(60);
-
   const navigation = useNavigation();
-
   const [esp32Response, setEsp32Response] = useState('');
+  const [showTemperature, setShowTemperature] = useState(false);
+  // WebSocket states
+  const [ws, setWs] = useState(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [detectedDrink, setDetectedDrink] = useState(null);
+
+  const ESP32_IP = "10.72.66.146"; // IP del tuo ESP32
 
   const [fontsLoaded] = useFonts({
     'Nunito': require('../assets/Nunito.ttf'),
     'Quicksand': require('../assets/Quicksand.ttf'),
     'Raleway': require('../assets/Raleway.ttf'),
   });
-
-  // Permanently saves the temperature that the user changes
-  useEffect(() => {
-    const loadDrinks = async () => {
-      try {
-        const savedDrinks = await AsyncStorage.getItem('@drinks');
-        if (savedDrinks !== null) {
-          const parsed = JSON.parse(savedDrinks);
-
-          // Verifica che ogni drink abbia un `uid` e `name`
-          const isValid = Array.isArray(parsed) &&
-            parsed.every(d => typeof d.uid === 'string' && typeof d.name === 'string');
-
-          if (isValid) {
-            setDrinks(parsed);
-          } else {
-            console.warn("Dati corrotti in AsyncStorage, ripristino quelli di default");
-            await AsyncStorage.setItem('@drinks', JSON.stringify(defaultDrinks));
-            setDrinks(defaultDrinks);
-          }
-        }
-      } catch (e) {
-        console.log('Errore nel caricamento dei drink:', e);
-        // In caso di errore, fallback
-        await AsyncStorage.setItem('@drinks', JSON.stringify(defaultDrinks));
-        setDrinks(defaultDrinks);
-      }
-    };
-
-    loadDrinks();
-  }, []);
-
-
-  // Function to open modal and set selected drink
-  const openDrinkModal = (drink) => {
-    setSelectedDrink(drink);
-    setTempEdit(drink.defaultTemp || 60); // fallback temperature
-    setModalVisible(true);
-  };
 
   // List of available drinks with default temperatures and icons
   const defaultDrinks = [
@@ -111,8 +74,9 @@ export default function App() {
     },
     {
       uid: '1DA9B0060A1080',
-      name: 'Baby bottle',
-      image: require('../assets/babyBottleIcon.png'),
+      name: 'BabyBottle', ///////////
+      image: 'https://img.icons8.com/sf-regular-filled/100/baby-bottle.png',
+      //image: require('../assets/babyBottleIcon.png'),
       defaultTemp: 37
     },
     {
@@ -125,6 +89,154 @@ export default function App() {
 
   const [drinks, setDrinks] = useState(defaultDrinks);
 
+  // WebSocket setup
+  useEffect(() => {
+    const connectWebSocket = () => {
+      try {
+        const websocket = new WebSocket(`ws://${ESP32_IP}/ws`);
+        
+        websocket.onopen = () => {
+          console.log('WebSocket connesso');
+          setWsConnected(true);
+          //setEsp32Response('Connesso al dispositivo');
+          
+          // Invia il database dei drink al server quando si connette
+          const syncMessage = {
+            type: 'sync',
+            db: drinks.map(drink => ({
+              uid: drink.uid,
+              drink: drink.name,
+              opt_temp: drink.defaultTemp
+            }))
+          };
+          websocket.send(JSON.stringify(syncMessage));
+        };
+
+        websocket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('Messaggio ricevuto:', data);
+            
+            if (data.type === 'nfc') {
+              // NFC rilevato dal server
+              const { uid, drink } = data;
+              console.log(`NFC rilevato: ${drink} (${uid})`);
+              
+              // Trova il drink corrispondente nel database locale
+              const foundDrink = drinks.find(d => d.uid === uid);
+              if (foundDrink) {
+                setDetectedDrink(foundDrink);
+                //setEsp32Response(`${drink} rilevato! Temperatura target: ${foundDrink.defaultTemp}°C`);
+              } else {
+                setDetectedDrink(null);
+                //setEsp32Response(`Tag NFC sconosciuto: ${uid}`);
+              }
+            }
+          } catch (error) {
+            console.error('Errore parsing messaggio WebSocket:', error);
+          }
+        };
+
+        websocket.onclose = () => {
+          console.log('WebSocket disconnesso');
+          setWsConnected(false);
+          //setEsp32Response('Disconnesso dal dispositivo');
+          setDetectedDrink(null);
+          
+          // Riconnetti dopo 3 secondi
+          setTimeout(connectWebSocket, 3000);
+        };
+
+        websocket.onerror = (error) => {
+          console.error('Errore WebSocket:', error);
+          setWsConnected(false);
+          setEsp32Response('Errore di connessione');
+        };
+
+        setWs(websocket);
+        
+      } catch (error) {
+        console.error('Errore connessione WebSocket:', error);
+        setEsp32Response('Impossibile connettersi al dispositivo');
+        
+        // Riprova dopo 5 secondi
+        setTimeout(connectWebSocket, 5000);
+      }
+    };
+
+    connectWebSocket();
+
+    // Cleanup
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, []);
+
+  // Timer per nascondere la temperatura dopo 3 secondi
+  useEffect(() => {
+    if (showTemperature) {
+      const timer = setTimeout(() => {
+        setShowTemperature(false);
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [showTemperature]);
+
+  // Sync drinks database when it changes
+  useEffect(() => {
+    if (ws && wsConnected && drinks.length > 0) {
+      const syncMessage = {
+        type: 'sync',
+        db: drinks.map(drink => ({
+          uid: drink.uid,
+          drink: drink.name,
+          opt_temp: drink.defaultTemp
+        }))
+      };
+      ws.send(JSON.stringify(syncMessage));
+      console.log('Database sincronizzato con ESP32');
+    }
+  }, [drinks, ws, wsConnected]);
+
+  // Load drinks from AsyncStorage
+  useEffect(() => {
+    const loadDrinks = async () => {
+      try {
+        //await AsyncStorage.removeItem('@drinks');
+        const savedDrinks = await AsyncStorage.getItem('@drinks');
+        if (savedDrinks !== null) {
+          const parsed = JSON.parse(savedDrinks);
+
+          const isValid = Array.isArray(parsed) &&
+            parsed.every(d => typeof d.uid === 'string' && typeof d.name === 'string');
+
+          if (isValid) {
+            setDrinks(parsed);
+          } else {
+            console.warn("Dati corrotti in AsyncStorage, ripristino quelli di default");
+            await AsyncStorage.setItem('@drinks', JSON.stringify(defaultDrinks));
+            setDrinks(defaultDrinks);
+          }
+        }
+      } catch (e) {
+        console.log('Errore nel caricamento dei drink:', e);
+        await AsyncStorage.setItem('@drinks', JSON.stringify(defaultDrinks));
+        setDrinks(defaultDrinks);
+      }
+    };
+
+    loadDrinks();
+  }, []);
+
+  // Function to open modal and set selected drink
+  const openDrinkModal = (drink) => {
+    setSelectedDrink(drink);
+    setTempEdit(drink.defaultTemp || 60);
+    setModalVisible(true);
+  };
 
   // Function to save edited temperature and update drink list
   const saveTemp = async () => {
@@ -144,12 +256,47 @@ export default function App() {
         // Salva nel AsyncStorage i drinks aggiornati
         await AsyncStorage.setItem('@drinks', JSON.stringify(updatedDrinks));
 
+        // Invia i dati al server ESP32 via HTTP
+        const payload = {
+          uid: selectedDrink.uid,
+          drink: selectedDrink.name,
+          opt_temp: tempEdit
+        };
+
+        const formData = new FormData();
+        formData.append('body', JSON.stringify(payload));
+
+        const response = await fetch(`http://${ESP32_IP}/saveTemp`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log('Dati salvati sul server:', result);
+          
+          // Sincronizza anche via WebSocket
+          if (ws && wsConnected) {
+            const syncMessage = {
+              type: 'sync',
+              db: updatedDrinks.map(drink => ({
+                uid: drink.uid,
+                drink: drink.name,
+                opt_temp: drink.defaultTemp
+              }))
+            };
+            ws.send(JSON.stringify(syncMessage));
+          }
+        } else {
+          console.error('Errore nel salvataggio sul server:', response.status);
+        }
+
       } catch (e) {
-        console.log('Failed to save drinks', e);
+        console.log('Failed to save drinks or send to server:', e);
+        Alert.alert('Errore', 'Impossibile salvare le impostazioni');
       }
     }
   };
-
 
   // Navigate to the "Stats" screen
   const onPressStats = () => {
@@ -157,16 +304,11 @@ export default function App() {
   };
 
   const handleFetchESP32 = () => {
-    fetch("http://10.72.66.146/getTemp")
+    fetch(`http://${ESP32_IP}/getTemp`)
       .then(res => res.json())  
       .then(data => {
-        // data = { temperatura: "37" }
-        const tempStr = data.temperatura;
-        // if you want a string:
+        const tempStr = data.temp;
         setServerTemp(tempStr);
-        // cast in to integer with parseInt, if you want a integer:
-        // setServerTemp(parseInt(tempStr, 10));
-        
         setEsp32Response('');  
       })
       .catch(err => {
@@ -195,6 +337,14 @@ export default function App() {
           </View>
         </TouchableOpacity>
 
+        {/* Connection status indicator */}
+        <View style={styles.connectionStatus}>
+          <View style={[styles.statusDot, { backgroundColor: wsConnected ? '#4CAF50' : '#F44336' }]} />
+          <Text style={styles.statusText}>
+            {wsConnected ? 'Connected' : 'Disconnected'}
+          </Text>
+        </View>
+
         {/* Logo section */}
         <View style={styles.spaceForLogo}>
           <Image style={styles.logo} source={require('../assets/logo.png')} />
@@ -219,26 +369,54 @@ export default function App() {
           />
         </View>
 
+        {/* Cup section with detected drink info */}
+        <TouchableOpacity style={styles.writtenSection}> 
+          {detectedDrink ? (
+            <>
+              {/* Container per immagine e temperatura sovrapposta */}
+              <View style={styles.imageContainer}>
+                {/* Immagine cliccabile */}
+                <TouchableOpacity onPress={() => {
+                  handleFetchESP32();
+                  setShowTemperature(true);
+                }}>
+                  <Image 
+                    source={imgnfc[detectedDrink.name]} // || detectedDrink.image}
+                    style={styles.detectedDrinkImage}
+                  />
+                </TouchableOpacity>
+                
+                {/* Temperatura sovrapposta al centro dell'immagine */}
+                {showTemperature && serverTemp !== null && (
+                  <View style={styles.overlayTemperatureContainer}>
+                    <Text style={styles.overlayTemperatureText}>
+                      {serverTemp}°C
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.writtenPlace}>Place</Text>
+              <Text style={styles.writtenPlace}>your drink</Text>
+              <Text style={styles.writtenPlace}>to start!</Text>
+            </>
+          )}
 
-        {/* Cup section with placeholder text and saucer */}
-        <TouchableOpacity style={styles.writtenSection} onPress={handleFetchESP32}>
-          <Text style={styles.writtenPlace}>cacca</Text>
-          <Text style={styles.writtenPlace}>pupu drink</Text>
-          <Text style={styles.writtenPlace}>to start!</Text>
-
-          {serverTemp !== null && (
-            <Text style={[styles.writtenPlaceContainer, { fontSize: 28, color: '#000', marginTop: 15 }]}>
+          {/* Mostra temperatura sotto se non c'è drink rilevato */}
+          {!detectedDrink && serverTemp !== null && (
+            <Text style={styles.requiredTemperature}>
               Temperatura: {serverTemp}°C
             </Text>
           )}
 
           {esp32Response !== '' && (
-            <Text style={{ fontSize: 16, color: 'red', marginTop: 10 }}>
+            <Text style={styles.responseText}>
               {esp32Response}
             </Text>
           )}
         </TouchableOpacity>
-
 
         <Svg style={styles.saucer}>
           <Polygon
@@ -254,15 +432,12 @@ export default function App() {
           transparent
           onRequestClose={() => setModalVisible(false)}
         >
-          {/* Overlay to close modal if tapped outside */}
           <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
             <View style={styles.modalOverlay}>
-              {/* Prevent tap propagation to background */}
               <TouchableWithoutFeedback onPress={() => {}}>
                 <View style={styles.modalContent}>
                   {selectedDrink && (
                     <>
-                      {/* Drink image in modal */}
                       <Image
                         source={
                           typeof selectedDrink.image === 'string'
@@ -271,11 +446,9 @@ export default function App() {
                         }
                         style={styles.modalImage}
                       />
-                      {/* Drink name */}
                       <Text style={styles.modalTitle}>{selectedDrink.name}</Text>
                       <Text style={styles.modalSubtitle}>Ideal temperature</Text>
 
-                      {/* Temperature controls */}
                       <View style={styles.tempControls}>
                         <TouchableOpacity
                           style={styles.tempButton}
@@ -292,7 +465,6 @@ export default function App() {
                         </TouchableOpacity>
                       </View>
 
-                      {/* Save button */}
                       <TouchableOpacity style={styles.saveButton} onPress={saveTemp}>
                         <Text style={styles.saveButtonText}>Save!</Text>
                       </TouchableOpacity>
@@ -310,18 +482,25 @@ export default function App() {
 
 // Theme colors
 const theme = {
-  colorePiuScuro: '#9d724c',
-  coloreScuro: '#d9a87c',
-  coloreChiaro: '#f5d0ae',
-  colorePiuChiaro: '#ffdebf'
+  darkestColor: '#9d724c',
+  darkColor: '#d9a87c',
+  lightColor: '#f5d0ae',
+  lighterColor: '#ffdebf'
+};
+
+const imgnfc = {
+  Coffee: require('../assets/expresso.png'),
+  BabyBottle: require('../assets/babyBottle.png'),
+  Milk:require('../assets/milk.png'),
+  Chocolate:require('../assets/chocolate.png'),
+  Tea:require('../assets/tea.png')
 };
 
 // Styles
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
-    backgroundColor: theme.coloreScuro
+    backgroundColor: theme.darkColor
   },
   
   background: {
@@ -331,15 +510,15 @@ const styles = StyleSheet.create({
   },
 
   statsButton: {
-  position: 'absolute',
-  top: 10,
-  right: 30,
-  width: 30,
-  height: 30,
-  justifyContent: 'flex-end',
-  alignItems: 'center',
-  zIndex: 10,
-},
+    position: 'absolute',
+    top: 10,
+    right: 30,
+    width: 30,
+    height: 30,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    zIndex: 10,
+  },
 
   statsButtonContainer: {
     flexDirection: 'row',
@@ -353,6 +532,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     borderRadius: 2,
     marginHorizontal: 2,
+  },
+
+  connectionStatus: {
+    position: 'absolute',
+    top: 15,
+    left: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+    marginTop:370
+  },
+
+  statusText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#000',
+    marginTop:370
   },
 
   sectionTitle: {
@@ -378,29 +581,23 @@ const styles = StyleSheet.create({
   drinkImage: {
     width: 80,
     height: 80,
-    marginBottom: 10,
+    marginBottom: 5,
   },
 
   drinkName: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
     marginTop: 8,
-    fontFamily : "Raleway"
+    fontFamily: "Raleway"
   },
 
   saucer: {
     position: 'absolute',
-    bottom: 85, // o un valore che lo posizioni correttamente
+    bottom: 85,
     left: '50%',
-    transform: [{ translateX: -150 }], // metà della sua larghezza (300px)
+    transform: [{ translateX: -150 }],
     height: 20,
     width: 300,
-  },
-
-  temperatureText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
   },
 
   modalOverlay: {
@@ -410,8 +607,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  //SETTINGS OF THE MODAL CONTENT
-  modalContent: { //window that opens if you click one of the drink cards
+  modalContent: {
     backgroundColor: "#fff",
     padding: 30,
     borderRadius: 20,
@@ -419,19 +615,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  modalImage: { //image on the modal content
+  modalImage: {
     width: 80,
     height: 80,
     marginBottom: 15,
   },
 
-  modalTitle: { //drink writing inside model content
+  modalTitle: {
     fontSize: 35,
     fontWeight: 'bold',
     marginBottom: 10,
   },
 
-  modalSubtitle: { //"Ideal temperature"
+  modalSubtitle: {
     fontSize: 16,
     marginBottom: 10,
     color: '#555',
@@ -443,28 +639,28 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  tempButton: { // circles around the + and -
+  tempButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: theme.coloreChiaro,
+    backgroundColor: theme.lightColor,
     justifyContent: 'center',
     alignItems: 'center',
     marginHorizontal: 20,
   },
 
-  tempButtonText: { //+ and - written
+  tempButtonText: {
     fontSize: 24,
     fontWeight: 'bold',
   },
 
-  tempValue: { // temperature
+  tempValue: {
     fontSize: 30,
     fontWeight: '600',
   },
 
   saveButton: {
-    backgroundColor: theme.coloreScuro,
+    backgroundColor: theme.darkColor,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 30,
@@ -477,7 +673,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center'
   },
-  //END SETTINGS MODAL CONTENT
 
   writtenPlace: {
     fontSize: 40,
@@ -485,10 +680,10 @@ const styles = StyleSheet.create({
     color: '#000',
     textAlign: 'left',
     fontFamily: "Nunito",
-    marginTop: -5
+    marginTop: -7
   },  
 
-    writtenSection: { //"Place your drink to start!"
+  writtenSection: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'flex-start',
@@ -496,15 +691,82 @@ const styles = StyleSheet.create({
     marginTop: -10,
     width: 300
   },
+
+  requiredTemperature: { 
+    fontSize: 28, 
+    color: '#000', 
+    marginTop: 15,
+    backgroundColor: '#fff',
+    width: 200
+  },
+
+  temperatureContainer:{
+
+  },
+
+  imageContainer: {
+  position: 'relative',
+  alignSelf: 'flex-start',
+},
+
+  overlayTemperatureContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)', // Sfondo bianco semi-trasparente
+    borderRadius: 10,
+  },
+
+  overlayTemperatureText: {
+    fontSize: 24,
+    color: '#000',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+
+  detectedDrinkText: {
+    fontSize: 45,
+    fontWeight: '700',
+    color: '#2E7D32',
+    textAlign: 'left',
+    fontFamily: "Nunito",
+  },
+
+  detectedTempText: {
+    fontSize: 25,
+    fontWeight: '600',
+    color: '#1B5E20',
+    textAlign: 'left',
+    fontFamily: "Raleway",
+    marginTop: 5,
+  },
+
+  responseText: { //error messages
+    fontSize: 16,
+    color: '#000',
+    marginTop: 10,
+    textAlign: 'left',
+  },
+
+  detectedDrinkImage: {
+    width: 150,
+    height: 150,
+    marginBottom: 10,
+    alignSelf: 'flex-start',
+    left:7
+  },
   
   spaceForLogo: {
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'center'
   },
 
-  logo:{
-    height:120,
-    width:120
+  logo: {
+    height: 120,
+    width: 120
   }
-
 });
