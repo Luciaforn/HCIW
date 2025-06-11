@@ -19,12 +19,12 @@ import { useFonts } from 'expo-font';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Get the screen height for responsive layout
-const { height } = Dimensions.get('window');
+const { height } = Dimensions.get('window'); //cambiato
 
 // DrinkCard component - a clickable card displaying a drink's name and image
 const DrinkCard = ({ name, image, onPress }) => (
   <TouchableOpacity style={styles.drinkCard} onPress={onPress}>
-    <Image source={typeof image === 'string' ? { uri: image } : image} style={styles.drinkImage} />
+    <Image source={{ uri: image }} style={styles.drinkImage} />
     <Text style={styles.drinkName}>{name}</Text>
   </TouchableOpacity>
 );
@@ -36,6 +36,7 @@ export default function App() {
   const [modalVisible, setModalVisible] = useState(false);
   const [serverTemp, setServerTemp] = useState(null);
   const [tempEdit, setTempEdit] = useState(60);
+  const [overlayWidth, setOverlayWidth] = useState(0); 
   const navigation = useNavigation();
   const [esp32Response, setEsp32Response] = useState('');
   const [showTemperature, setShowTemperature] = useState(false);
@@ -50,6 +51,8 @@ export default function App() {
     'Nunito': require('../assets/Nunito.ttf'),
     'Quicksand': require('../assets/Quicksand.ttf'),
     'Raleway': require('../assets/Raleway.ttf'),
+    'Jersey': require('../assets/Jersey.ttf'),
+    'Digital': require('../assets/Digital.ttf')
   });
 
   // List of available drinks with default temperatures and icons
@@ -74,7 +77,7 @@ export default function App() {
     },
     {
       uid: '1DA9B0060A1080',
-      name: 'BabyBottle', ///////////
+      name: 'BabyBottle', 
       image: 'https://img.icons8.com/sf-regular-filled/100/baby-bottle.png',
       //image: require('../assets/babyBottleIcon.png'),
       defaultTemp: 37
@@ -116,39 +119,39 @@ export default function App() {
           try {
             const data = JSON.parse(event.data);
             console.log('Messaggio ricevuto:', data);
-            
+            //todo: qui dovresti gestire le notifiche
             if (data.type === 'nfc') {
-              // NFC rilevato dal server
+              // NFC detected from the server
               const { uid, drink } = data;
               console.log(`NFC rilevato: ${drink} (${uid})`);
               
-              // Trova il drink corrispondente nel database locale
               const foundDrink = drinks.find(d => d.uid === uid);
               if (foundDrink) {
                 setDetectedDrink(foundDrink);
-                //setEsp32Response(`${drink} rilevato! Temperatura target: ${foundDrink.defaultTemp}°C`);
               } else {
                 setDetectedDrink(null);
-                //setEsp32Response(`Tag NFC sconosciuto: ${uid}`);
               }
             }
+            else if (data.type === '1' || data.type === '2') {
+              // Generic Notification: success / warning
+               handleNotificationMessage(data);
+    }
           } catch (error) {
             console.error('Errore parsing messaggio WebSocket:', error);
           }
         };
 
         websocket.onclose = () => {
-          console.log('WebSocket disconnesso');
+          //console.log('WebSocket disconnesso'); ###
           setWsConnected(false);
           //setEsp32Response('Disconnesso dal dispositivo');
           setDetectedDrink(null);
           
-          // Riconnetti dopo 3 secondi
           setTimeout(connectWebSocket, 3000);
         };
 
         websocket.onerror = (error) => {
-          console.error('Errore WebSocket:', error);
+          //console.error('Errore WebSocket:', error); ###
           setWsConnected(false);
           setEsp32Response('Errore di connessione');
         };
@@ -159,7 +162,6 @@ export default function App() {
         console.error('Errore connessione WebSocket:', error);
         setEsp32Response('Impossibile connettersi al dispositivo');
         
-        // Riprova dopo 5 secondi
         setTimeout(connectWebSocket, 5000);
       }
     };
@@ -174,7 +176,7 @@ export default function App() {
     };
   }, []);
 
-  // Timer per nascondere la temperatura dopo 3 secondi
+  // Timer to hide the temperature after 3 second
   useEffect(() => {
     if (showTemperature) {
       const timer = setTimeout(() => {
@@ -215,6 +217,8 @@ export default function App() {
 
           if (isValid) {
             setDrinks(parsed);
+            //console.log("Drinks caricati:", parsed); //todo: log per vedere cosa c'è effettivamente dentro drinks
+
           } else {
             console.warn("Dati corrotti in AsyncStorage, ripristino quelli di default");
             await AsyncStorage.setItem('@drinks', JSON.stringify(defaultDrinks));
@@ -253,10 +257,10 @@ export default function App() {
         setTemperature(tempEdit);
         setModalVisible(false);
 
-        // Salva nel AsyncStorage i drinks aggiornati
+        // Save on AsyncStorage the update drinks
         await AsyncStorage.setItem('@drinks', JSON.stringify(updatedDrinks));
 
-        // Invia i dati al server ESP32 via HTTP
+        // Send data to the server via HTTP 
         const payload = {
           uid: selectedDrink.uid,
           drink: selectedDrink.name,
@@ -275,7 +279,7 @@ export default function App() {
           const result = await response.json();
           console.log('Dati salvati sul server:', result);
           
-          // Sincronizza anche via WebSocket
+          // Synchronize also via WebSocket
           if (ws && wsConnected) {
             const syncMessage = {
               type: 'sync',
@@ -298,6 +302,16 @@ export default function App() {
     }
   };
 
+  function handleNotificationMessage(data) {
+    const { message, drink, temperature, notification_type } = data;
+    const alertMessage = `${message}${drink ? `: ${drink}` : ''}${temperature ? ` (${temperature}°C)` : ''}`;
+
+    Alert.alert(
+      notification_type === 'success' ? '✅ Notifica' : '⚠️ Attenzione',
+      alertMessage
+    );
+  }
+
   // Navigate to the "Stats" screen
   const onPressStats = () => {
     navigation.navigate('Stats');
@@ -316,6 +330,20 @@ export default function App() {
         setServerTemp(null);
       });
   };
+
+  function changeColor(tempStr){ //cambiato
+    const idealTemperature = detectedDrink.idealTemp;
+    if(tempStr > idealTemperature)
+    {
+      return 'red';
+    }
+    else if(tempStr < idealTemperature)
+    {
+      return 'dodgerblue';
+    }
+    else
+      return 'green';
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -371,26 +399,40 @@ export default function App() {
 
         {/* Cup section with detected drink info */}
         <TouchableOpacity style={styles.writtenSection}> 
+
+          <View style={styles.containerEsp32Resp}>
+            {esp32Response !== '' && (
+              <Text style={styles.esp32RespText}>
+                {esp32Response}
+              </Text>
+            )}
+          </View>
           {detectedDrink ? (
             <>
-              {/* Container per immagine e temperatura sovrapposta */}
               <View style={styles.imageContainer}>
-                {/* Immagine cliccabile */}
                 <TouchableOpacity onPress={() => {
                   handleFetchESP32();
                   setShowTemperature(true);
                 }}>
                   <Image 
-                    source={imgnfc[detectedDrink.name]} // || detectedDrink.image}
+                    source={imgnfc[detectedDrink.name]} 
                     style={styles.detectedDrinkImage}
                   />
                 </TouchableOpacity>
                 
-                {/* Temperatura sovrapposta al centro dell'immagine */}
+                {/* cambiato da 411 a 432*/}
                 {showTemperature && serverTemp !== null && (
-                  <View style={styles.overlayTemperatureContainer}>
+                  <View style={[styles.overlayTemperatureContainer,
+                    {
+                      transform: [
+                        { translateX: -overlayWidth / 2 }
+                      ]
+                    },
+                    {backgroundColor: changeColor(serverTemp)}
+                  ]}> 
+                  {/*<View style={styles.overlayTemperatureContainer}> //Prima era cosi*/}
                     <Text style={styles.overlayTemperatureText}>
-                      {serverTemp}°C
+                      {serverTemp}°C 
                     </Text>
                   </View>
                 )}
@@ -404,18 +446,13 @@ export default function App() {
             </>
           )}
 
-          {/* Mostra temperatura sotto se non c'è drink rilevato */}
+          {/* Show temperature below if no drink detected */}
           {!detectedDrink && serverTemp !== null && (
             <Text style={styles.requiredTemperature}>
               Temperatura: {serverTemp}°C
             </Text>
           )}
 
-          {esp32Response !== '' && (
-            <Text style={styles.responseText}>
-              {esp32Response}
-            </Text>
-          )}
         </TouchableOpacity>
 
         <Svg style={styles.saucer}>
@@ -439,11 +476,7 @@ export default function App() {
                   {selectedDrink && (
                     <>
                       <Image
-                        source={
-                          typeof selectedDrink.image === 'string'
-                            ? { uri: selectedDrink.image }
-                            : selectedDrink.image
-                        }
+                        source={{ uri: selectedDrink.image }}
                         style={styles.modalImage}
                       />
                       <Text style={styles.modalTitle}>{selectedDrink.name}</Text>
@@ -700,52 +733,52 @@ const styles = StyleSheet.create({
     width: 200
   },
 
-  temperatureContainer:{
-
+  esp32RespText:{
+    color: 'rgb(255, 0, 0)',
+    fontSize: 15,
+    fontWeight:600,
+    backgroundColor: '#fff'
   },
 
-  imageContainer: {
-  position: 'relative',
-  alignSelf: 'flex-start',
+   containerEsp32Resp:{ 
+    height: 20, 
+    justifyContent: 'center',
+    bottom:35
+   },
+
+  //container of the image of the nfc
+  //cambiato
+  imageContainer: { 
+    position: 'relative',
+    alignItems: 'center', 
+    width: '100%',
 },
 
+  //cambiato
   overlayTemperatureContainer: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)', // Sfondo bianco semi-trasparente
-    borderRadius: 10,
+    top: '50%',
+    left: '50%',
+    transform: [{ translateY: -15 }], // todo : centra verticalmente dove dovrebbe essere
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderColor: '#000',
+    borderWidth: 2.2,
+    opacity: 0.8
   },
 
+  //cambiato
   overlayTemperatureText: {
-    fontSize: 24,
+    fontSize: 27,
     color: '#000',
     fontWeight: 'bold',
     textAlign: 'center',
+    //fontFamily: 'Jersey',
+    fontFamily: "Digital"
   },
 
-  detectedDrinkText: {
-    fontSize: 45,
-    fontWeight: '700',
-    color: '#2E7D32',
-    textAlign: 'left',
-    fontFamily: "Nunito",
-  },
-
-  detectedTempText: {
-    fontSize: 25,
-    fontWeight: '600',
-    color: '#1B5E20',
-    textAlign: 'left',
-    fontFamily: "Raleway",
-    marginTop: 5,
-  },
-
-  responseText: { //error messages
+  //Error messages
+  responseText: { 
     fontSize: 16,
     color: '#000',
     marginTop: 10,
@@ -753,8 +786,8 @@ const styles = StyleSheet.create({
   },
 
   detectedDrinkImage: {
-    width: 150,
-    height: 150,
+    width: 200, //cambiato
+    height: 200, //cambiato
     marginBottom: 10,
     alignSelf: 'flex-start',
     left:7
