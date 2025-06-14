@@ -19,7 +19,6 @@ import { useFonts } from 'expo-font';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Get the screen height for responsive layout
-const { height } = Dimensions.get('window'); //cambiato
 
 // DrinkCard component - a clickable card displaying a drink's name and image
 const DrinkCard = ({ name, image, onPress }) => (
@@ -36,7 +35,6 @@ export default function App() {
   const [modalVisible, setModalVisible] = useState(false);
   const [serverTemp, setServerTemp] = useState(null);
   const [tempEdit, setTempEdit] = useState(60);
-  const [overlayWidth, setOverlayWidth] = useState(0); 
   const navigation = useNavigation();
   const [esp32Response, setEsp32Response] = useState('');
   const [showTemperature, setShowTemperature] = useState(false);
@@ -44,8 +42,7 @@ export default function App() {
   const [ws, setWs] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [detectedDrink, setDetectedDrink] = useState(null);
-
-  const ESP32_IP = "10.72.66.146"; // IP del tuo ESP32
+  const ESP32_IP = "192.168.1.24"; 
 
   const [fontsLoaded] = useFonts({
     'Nunito': require('../assets/Nunito.ttf'),
@@ -79,7 +76,6 @@ export default function App() {
       uid: '1DA9B0060A1080',
       name: 'BabyBottle', 
       image: 'https://img.icons8.com/sf-regular-filled/100/baby-bottle.png',
-      //image: require('../assets/babyBottleIcon.png'),
       defaultTemp: 37
     },
     {
@@ -101,9 +97,9 @@ export default function App() {
         websocket.onopen = () => {
           console.log('WebSocket connesso');
           setWsConnected(true);
-          //setEsp32Response('Connesso al dispositivo');
           
-          // Invia il database dei drink al server quando si connette
+          
+          // Sends the drink database to the server when it connects
           const syncMessage = {
             type: 'sync',
             db: drinks.map(drink => ({
@@ -142,16 +138,16 @@ export default function App() {
         };
 
         websocket.onclose = () => {
-          //console.log('WebSocket disconnesso'); ###
+          console.log('WebSocket disconnesso'); //###
           setWsConnected(false);
-          //setEsp32Response('Disconnesso dal dispositivo');
+          setEsp32Response('Disconnesso dal dispositivo'); //###
           setDetectedDrink(null);
           
           setTimeout(connectWebSocket, 3000);
         };
 
         websocket.onerror = (error) => {
-          //console.error('Errore WebSocket:', error); ###
+          console.error('Errore WebSocket:', error); //###
           setWsConnected(false);
           setEsp32Response('Errore di connessione');
         };
@@ -416,18 +412,12 @@ export default function App() {
                 }}>
                   <Image 
                     source={imgnfc[detectedDrink.name]} 
-                    style={styles.detectedDrinkImage}
-                  />
+                    style={styles.detectedDrinkImage}/> 
                 </TouchableOpacity>
                 
                 {/* cambiato da 411 a 432*/}
                 {showTemperature && serverTemp !== null && (
                   <View style={[styles.overlayTemperatureContainer,
-                    {
-                      transform: [
-                        { translateX: -overlayWidth / 2 }
-                      ]
-                    },
                     {backgroundColor: changeColor(serverTemp)}
                   ]}> 
                   {/*<View style={styles.overlayTemperatureContainer}> //Prima era cosi*/}
@@ -717,12 +707,12 @@ const styles = StyleSheet.create({
   },  
 
   writtenSection: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    marginLeft: 105,
-    marginTop: -10,
-    width: 300
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',  
+      marginTop: -10,
+      width: '100%',
+      marginLeft: 0 
   },
 
   requiredTemperature: { 
@@ -757,14 +747,12 @@ const styles = StyleSheet.create({
   //cambiato
   overlayTemperatureContainer: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateY: -15 }], // todo : centra verticalmente dove dovrebbe essere
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderColor: '#000',
     borderWidth: 2.2,
-    opacity: 0.8
+    opacity: 0.8,
+    bottom: 50
   },
 
   //cambiato
@@ -785,13 +773,11 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
 
-  detectedDrinkImage: {
-    width: 200, //cambiato
-    height: 200, //cambiato
-    marginBottom: 10,
-    alignSelf: 'flex-start',
-    left:7
-  },
+detectedDrinkImage: {
+  width: 200,
+  height: 200,
+  bottom: 10
+},
   
   spaceForLogo: {
     justifyContent: 'center',
