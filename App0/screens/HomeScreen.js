@@ -559,7 +559,7 @@ const styles = StyleSheet.create({
 
   connectionStatus: {
     position: 'absolute',
-    top: 15,
+    top: 400, // Invece di usare marginTop sui singoli elementi
     left: 30,
     flexDirection: 'row',
     alignItems: 'center',
@@ -571,14 +571,14 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     marginRight: 8,
-    marginTop:370
+    //marginTop:370
   },
 
   statusText: {
     fontSize: 17,
     fontWeight: '600',
     color: '#000',
-    marginTop:370
+    //marginTop:370
   },
 
   sectionTitle: {
