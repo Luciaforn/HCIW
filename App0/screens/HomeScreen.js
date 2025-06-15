@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import Svg, { Polygon } from 'react-native-svg';
+import * as Permissions from 'expo-permissions';
 import {
   View,
   Text,
@@ -18,7 +20,22 @@ import {
 import { useFonts } from 'expo-font';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Get the screen height for responsive layout
+export async function registerForPushNotificationsAsync() {
+  const { status: existingStatus } = await Permissions.getAsync(Permissions.NOTIFICATIONS);
+  let finalStatus = existingStatus;
+
+  if (existingStatus !== 'granted') {
+    const { status } = await Permissions.askAsync(Permissions.NOTIFICATIONS);
+    finalStatus = status;
+  }
+
+  if (finalStatus !== 'granted') {
+    alert('Non hai permesso di ricevere notifiche (cojone)!');
+    return false;
+  }
+
+  return true;
+}
 
 // DrinkCard component - a clickable card displaying a drink's name and image
 const DrinkCard = ({ name, image, onPress }) => (
@@ -43,6 +60,12 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [detectedDrink, setDetectedDrink] = useState(null);
   const ESP32_IP = "192.168.1.24"; 
+  const dataF = {
+    message: "La temperatura è troppo alta",
+    drink: "Acqua fresca",
+    temperature: 28,
+    notification_type: "warning" // può essere 'success' o 'warning'
+  };
 
   const [fontsLoaded] = useFonts({
     'Nunito': require('../assets/Nunito.ttf'),
@@ -138,25 +161,25 @@ export default function App() {
         };
 
         websocket.onclose = () => {
-          console.log('WebSocket disconnesso'); //###
+          //console.log('WebSocket disconnesso'); //###
           setWsConnected(false);
-          setEsp32Response('Disconnesso dal dispositivo'); //###
+          //setEsp32Response('Disconnesso dal dispositivo'); //###
           setDetectedDrink(null);
           
           setTimeout(connectWebSocket, 3000);
         };
 
         websocket.onerror = (error) => {
-          console.error('Errore WebSocket:', error); //###
+          //console.error('Errore WebSocket:', error); //###
           setWsConnected(false);
-          setEsp32Response('Errore di connessione');
+          //setEsp32Response('Errore di connessione'); //###
         };
 
         setWs(websocket);
         
       } catch (error) {
         console.error('Errore connessione WebSocket:', error);
-        setEsp32Response('Impossibile connettersi al dispositivo');
+        //setEsp32Response('Impossibile connettersi al dispositivo'); //###
         
         setTimeout(connectWebSocket, 5000);
       }
@@ -298,14 +321,20 @@ export default function App() {
     }
   };
 
-  function handleNotificationMessage(data) {
+
+  //onPress={() => handleNotificationMessage(data)} 
+  async function handleNotificationMessage(data) {
     const { message, drink, temperature, notification_type } = data;
     const alertMessage = `${message}${drink ? `: ${drink}` : ''}${temperature ? ` (${temperature}°C)` : ''}`;
 
-    Alert.alert(
-      notification_type === 'success' ? '✅ Notifica' : '⚠️ Attenzione',
-      alertMessage
-    );
+    await Notifications.scheduleNotificationAsync({
+    content: {
+      title: notification_type === 'success' ? '✅ Notifica' : '⚠️ Attenzione',
+      body: alertMessage,
+      sound: 'default',
+    },
+    trigger: null, // trigger null significa notifiche immediate
+  });
   }
 
   // Navigate to the "Stats" screen
@@ -371,9 +400,11 @@ export default function App() {
 
         {/* Logo section */}
         <View style={styles.spaceForLogo}>
-          <Image style={styles.logo} source={require('../assets/logo.png')} />
+          <Image 
+            style={styles.logo} 
+            source={require('../assets/logo.png')} 
+          />        
         </View>
-
         {/* My Drinks list */}
         <View style={styles.drinksSection}>
           <Text style={styles.sectionTitle}>My Drink</Text>
