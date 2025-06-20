@@ -59,13 +59,8 @@ export default function App() {
   const [ws, setWs] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [detectedDrink, setDetectedDrink] = useState(null);
-  const ESP32_IP = "192.168.1.24"; 
-  const dataF = {
-    message: "La temperatura è troppo alta",
-    drink: "Acqua fresca",
-    temperature: 28,
-    notification_type: "warning" // può essere 'success' o 'warning'
-  };
+  const ESP32_IP = "10.72.66.146"; 
+
 
   const [fontsLoaded] = useFonts({
     'Nunito': require('../assets/Nunito.ttf'),
@@ -138,7 +133,6 @@ export default function App() {
           try {
             const data = JSON.parse(event.data);
             console.log('Messaggio ricevuto:', data);
-            //todo: qui dovresti gestire le notifiche
             if (data.type === 'nfc') {
               // NFC detected from the server
               const { uid, drink } = data;
@@ -151,8 +145,7 @@ export default function App() {
                 setDetectedDrink(null);
               }
             }
-            else if (data.type === '1' || data.type === '2') {
-              // Generic Notification: success / warning
+            else if (data.type === 'notification_1' || data.type === 'notification_2') {
                handleNotificationMessage(data);
     }
           } catch (error) {
@@ -161,25 +154,25 @@ export default function App() {
         };
 
         websocket.onclose = () => {
-          //console.log('WebSocket disconnesso'); //###
+          console.log('WebSocket disconnesso'); 
           setWsConnected(false);
-          //setEsp32Response('Disconnesso dal dispositivo'); //###
+          setEsp32Response('Disconnesso dal dispositivo'); 
           setDetectedDrink(null);
           
           setTimeout(connectWebSocket, 3000);
         };
 
         websocket.onerror = (error) => {
-          //console.error('Errore WebSocket:', error); //###
+          console.error('Errore WebSocket:', error); 
           setWsConnected(false);
-          //setEsp32Response('Errore di connessione'); //###
+          setEsp32Response('Errore di connessione'); 
         };
 
         setWs(websocket);
         
       } catch (error) {
         console.error('Errore connessione WebSocket:', error);
-        //setEsp32Response('Impossibile connettersi al dispositivo'); //###
+        setEsp32Response('Impossibile connettersi al dispositivo'); 
         
         setTimeout(connectWebSocket, 5000);
       }
@@ -236,7 +229,6 @@ export default function App() {
 
           if (isValid) {
             setDrinks(parsed);
-            //console.log("Drinks caricati:", parsed); //todo: log per vedere cosa c'è effettivamente dentro drinks
 
           } else {
             console.warn("Dati corrotti in AsyncStorage, ripristino quelli di default");
@@ -322,25 +314,19 @@ export default function App() {
   };
 
 
-  //onPress={() => handleNotificationMessage(data)} 
   async function handleNotificationMessage(data) {
     const { message, drink, temperature, notification_type } = data;
-    const alertMessage = `${message}${drink ? `: ${drink}` : ''}${temperature ? ` (${temperature}°C)` : ''}`;
-
+    //const alertMessage = `${message}${drink ? `: ${drink}` : ''}${temperature ? ` (${temperature}°C)` : ''}`; //todo:togliere se funzionano notifiche
+    const alertMessage = `${message}`;
     await Notifications.scheduleNotificationAsync({
     content: {
-      title: notification_type === 'success' ? '✅ Notifica' : '⚠️ Attenzione',
+      title: '🫗Splash!',
       body: alertMessage,
       sound: 'default',
     },
-    trigger: null, // trigger null significa notifiche immediate
+    trigger: null, 
   });
   }
-
-  // Navigate to the "Stats" screen
-  const onPressStats = () => {
-    navigation.navigate('Stats');
-  };
 
   const handleFetchESP32 = () => {
     fetch(`http://${ESP32_IP}/getTemp`)
@@ -356,19 +342,19 @@ export default function App() {
       });
   };
 
-  function changeColor(tempStr){ //cambiato
-    const idealTemperature = detectedDrink.idealTemp;
-    if(tempStr > idealTemperature)
-    {
-      return 'red';
-    }
-    else if(tempStr < idealTemperature)
-    {
-      return 'dodgerblue';
-    }
-    else
-      return 'green';
-  }
+  function changeColor(tempStr) {
+    if (!detectedDrink) return 'gray';
+
+    const idealTemperature = detectedDrink.defaultTemp;
+    const currentTemp = parseFloat(tempStr);
+
+    if (isNaN(currentTemp)) return 'gray';
+
+    if (currentTemp > idealTemperature) return 'red';
+    if (currentTemp < idealTemperature) return 'dodgerblue';
+    return 'green';
+}
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -377,18 +363,6 @@ export default function App() {
         style={styles.background}
         resizeMode="cover"
       >
-        {/* Stats (menu) button */}
-        <TouchableOpacity
-          style={styles.statsButton}
-          onPress={onPressStats}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <View style={styles.statsButtonContainer}>
-            <View style={[styles.statsBar, { height: 10 }]} />
-            <View style={[styles.statsBar, { height: 26 }]} />
-            <View style={[styles.statsBar, { height: 18 }]} />
-          </View>
-        </TouchableOpacity>
 
         {/* Connection status indicator */}
         <View style={styles.connectionStatus}>
@@ -446,14 +420,12 @@ export default function App() {
                     style={styles.detectedDrinkImage}/> 
                 </TouchableOpacity>
                 
-                {/* cambiato da 411 a 432*/}
                 {showTemperature && serverTemp !== null && (
                   <View style={[styles.overlayTemperatureContainer,
                     {backgroundColor: changeColor(serverTemp)}
                   ]}> 
-                  {/*<View style={styles.overlayTemperatureContainer}> //Prima era cosi*/}
                     <Text style={styles.overlayTemperatureText}>
-                      {serverTemp}°C 
+                      {serverTemp.toFixed(1)}°C 
                     </Text>
                   </View>
                 )}
@@ -465,13 +437,6 @@ export default function App() {
               <Text style={styles.writtenPlace}>your drink</Text>
               <Text style={styles.writtenPlace}>to start!</Text>
             </>
-          )}
-
-          {/* Show temperature below if no drink detected */}
-          {!detectedDrink && serverTemp !== null && (
-            <Text style={styles.requiredTemperature}>
-              Temperatura: {serverTemp}°C
-            </Text>
           )}
 
         </TouchableOpacity>
@@ -542,6 +507,7 @@ const theme = {
   lighterColor: '#ffdebf'
 };
 
+//nfc images
 const imgnfc = {
   Coffee: require('../assets/expresso.png'),
   BabyBottle: require('../assets/babyBottle.png'),
@@ -560,25 +526,7 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
     resizeMode: 'cover',
-    justifyContent: 'center'
-  },
-
-  statsButton: {
-    position: 'absolute',
-    top: 10,
-    right: 30,
-    width: 30,
-    height: 30,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-
-  statsButtonContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
     justifyContent: 'center',
-    height: '100%',
   },
 
   statsBar: {
@@ -590,7 +538,7 @@ const styles = StyleSheet.create({
 
   connectionStatus: {
     position: 'absolute',
-    top: 400, // Invece di usare marginTop sui singoli elementi
+    top: 400, 
     left: 30,
     flexDirection: 'row',
     alignItems: 'center',
@@ -602,14 +550,12 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     marginRight: 8,
-    //marginTop:370
   },
 
   statusText: {
     fontSize: 17,
     fontWeight: '600',
     color: '#000',
-    //marginTop:370
   },
 
   sectionTitle: {
@@ -768,14 +714,12 @@ const styles = StyleSheet.create({
    },
 
   //container of the image of the nfc
-  //cambiato
   imageContainer: { 
     position: 'relative',
     alignItems: 'center', 
     width: '100%',
 },
 
-  //cambiato
   overlayTemperatureContainer: {
     position: 'absolute',
     paddingHorizontal: 15,
@@ -786,13 +730,11 @@ const styles = StyleSheet.create({
     bottom: 50
   },
 
-  //cambiato
   overlayTemperatureText: {
     fontSize: 27,
     color: '#000',
     fontWeight: 'bold',
     textAlign: 'center',
-    //fontFamily: 'Jersey',
     fontFamily: "Digital"
   },
 
